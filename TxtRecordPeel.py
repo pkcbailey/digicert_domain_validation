@@ -6,15 +6,60 @@ This script:
 1. Reads today's files from digicert_output/
 2. Queries NS records for each domain
 3. Categorizes the NS provider
-4. Creates a CSV with the combined data
+4. Creates separate CSVs for Akamai and non-Akamai domains
+5. Emails the non-Akamai domains report
 """
 
 import json
 import os
 import csv
 import subprocess
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from typing import Dict, List, Optional
+import keyring
+
+def get_email_credentials() -> tuple:
+    """Get email credentials from keyring"""
+    service = "digicert_email"
+    email = keyring.get_password(service, "email")
+    password = keyring.get_password(service, "password")
+    relay = keyring.get_password(service, "relay")
+    
+    if not all([email, password, relay]):
+        print("Error: Missing email credentials in keyring")
+        print("Please store the following in keyring:")
+        print("1. Service: digicert_email")
+        print("2. Username: email (your email address)")
+        print("3. Username: password (your email password)")
+        print("4. Username: relay (your email relay server)")
+        raise ValueError("Missing email credentials")
+    
+    return email, password, relay
+
+def send_email(subject: str, body: str, to_email: str):
+    """Send email using stored credentials"""
+    try:
+        from_email, password, relay = get_email_credentials()
+        
+        msg = MIMEMultipart()
+        msg['From'] = from_email
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        
+        msg.attach(MIMEText(body, 'plain'))
+        
+        server = smtplib.SMTP(relay)
+        server.starttls()
+        server.login(from_email, password)
+        server.send_message(msg)
+        server.quit()
+        
+        print(f"Email sent successfully to {to_email}")
+    except Exception as e:
+        print(f"Error sending email: {str(e)}")
 
 def get_ns_provider(ns_record: str) -> str:
     """Determine the NS provider based on the record content"""
@@ -101,10 +146,10 @@ def process_digicert_files() -> List[Dict]:
     
     return results
 
-def save_to_csv(results: List[Dict]) -> str:
-    """Save results to a CSV file"""
+def save_to_csv(results: List[Dict], provider: str) -> str:
+    """Save results to a CSV file for specific provider"""
     today = datetime.now().strftime("%Y%m%d")
-    csv_filename = f"ns_records_{today}.csv"
+    csv_filename = f"ns_records_{provider.lower()}_{today}.csv"
     
     with open(csv_filename, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=[
@@ -116,22 +161,52 @@ def save_to_csv(results: List[Dict]) -> str:
     
     return csv_filename
 
-def main():
-    # Ensure digicert_output directory exists
-    output_dir = "digicert_output"
-    if not os.path.exists(output_dir):
-        print(f"Creating directory: {output_dir}")
-        os.makedirs(output_dir)
-        print("No files found in digicert_output directory")
-        return
+def create_email_body(results: List[Dict]) -> str:
+    """Create email body from non-Akamai results"""
+    body = "Non-Akamai Domains Report\n\n"
+    body += "Domain,ID,Status,NS Provider,TXT Record\n"
+    body += "-" * 80 + "\n"
     
+    for result in results:
+        body += f"{result['domain']},{result['id']},{result['status']},"
+        body += f"{result['ns_provider']},{result['txt_record']}\n"
+    
+    return body
+
+def main():
     print("Processing DigiCert output files...")
     results = process_digicert_files()
     
     if results:
-        csv_file = save_to_csv(results)
-        print(f"\nResults saved to: {csv_file}")
-        print(f"\nProcessed {len(results)} domains")
+        # Split results into Akamai and non-Akamai
+        akamai_results = [r for r in results if r['ns_provider'] == 'Akamai']
+        non_akamai_results = [r for r in results if r['ns_provider'] != 'Akamai']
+        
+        # Save Akamai results
+        if akamai_results:
+            akamai_file = save_to_csv(akamai_results, "akamai")
+            print(f"\nAkamai results saved to: {akamai_file}")
+        
+        # Save and email non-Akamai results
+        if non_akamai_results:
+            non_akamai_file = save_to_csv(non_akamai_results, "non_akamai")
+            print(f"\nNon-Akamai results saved to: {non_akamai_file}")
+            
+            # Create and send email
+            email_body = create_email_body(non_akamai_results)
+            try:
+                from_email, _, _ = get_email_credentials()
+                send_email(
+                    "Non-Akamai Domains Report",
+                    email_body,
+                    from_email  # Sending to self for now
+                )
+            except Exception as e:
+                print(f"Error sending email: {str(e)}")
+        
+        print(f"\nProcessed {len(results)} domains total")
+        print(f"- Akamai domains: {len(akamai_results)}")
+        print(f"- Non-Akamai domains: {len(non_akamai_results)}")
     else:
         print("No DigiCert output files found for today")
 
