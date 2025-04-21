@@ -47,11 +47,6 @@ class DigiCertDomainAdder:
                 print("5. Enter your API key as the password")
                 raise ValueError("DigiCert API key not found in keychain")
                 
-            # Verify the key format (should be a 32-character hex string)
-            if not isinstance(key, str) or len(key) != 32:
-                print(f"Warning: API key format appears incorrect. Expected 32 characters, got {len(key)}")
-                print("Please verify the key in your keyring is correct.")
-                
             return key
             
         except Exception as e:
@@ -76,54 +71,92 @@ class DigiCertDomainAdder:
         return org_id
         
     def add_domain(self, domain: str) -> Dict:
-        """Add a single domain to DigiCert with TXT token validation"""
+        """Add a single domain to DigiCert"""
         try:
+            # Get organization ID from keychain
+            org_id = self._get_org_id()
+            
             # Prepare the request payload
             payload = {
                 "name": domain,
                 "organization": {
-                    "id": int(self.org_id)
+                    "id": int(org_id)
                 },
                 "validations": [
                     {
-                        "type": "dns-txt-token"
+                        "type": "ov"
+                    },
+                    {
+                        "type": "ev"
                     }
                 ],
                 "dcv_method": "dns-txt-token"
             }
             
             # Make the API request
+            print("\n=== DigiCert API Call ===")
+            print(f"URL: {self.base_url}/domain")
+            print(f"Method: POST")
+            print(f"Headers: {json.dumps(self.headers, indent=2)}")
+            print(f"Payload: {json.dumps(payload, indent=2)}")
+            
             response = requests.post(
                 f"{self.base_url}/domain",
                 headers=self.headers,
                 json=payload
             )
             
+            print("\n=== API Response ===")
+            print(f"Status Code: {response.status_code}")
+            print(f"Response Headers: {json.dumps(dict(response.headers), indent=2)}")
+            
+            response_data = None
+            try:
+                response_data = response.json()
+                print(f"Response Body: {json.dumps(response_data, indent=2)}")
+            except:
+                print(f"Response Body: {response.text}")
+            
             if response.status_code == 201:
-                data = response.json()
+                # Extract TXT record information from dcv_token
+                txt_record = None
+                if response_data and 'dcv_token' in response_data:
+                    token = response_data['dcv_token'].get('token')
+                    if token:
+                        txt_record = token
+                        print("\n=== TXT Record Information ===")
+                        print(f"TXT Record: digicert-validation={txt_record}")
+                        print(f"Add this TXT record to your DNS for domain: {domain}")
+                
                 return {
                     'domain': domain,
-                    'id': data.get('id'),
-                    'token': data.get('dcv_token', {}).get('token'),
+                    'id': response_data.get('id'),
                     'status': 'success',
-                    'error': None
+                    'error': None,
+                    'txt_record': txt_record
                 }
             else:
+                error_msg = f"API error: {response.status_code}"
+                try:
+                    error_data = response.json()
+                    error_msg += f" - {json.dumps(error_data)}"
+                except:
+                    error_msg += f" - {response.text}"
                 return {
                     'domain': domain,
                     'id': None,
-                    'token': None,
                     'status': 'error',
-                    'error': f"API error: {response.status_code} - {response.text}"
+                    'error': error_msg,
+                    'txt_record': None
                 }
                 
         except Exception as e:
             return {
                 'domain': domain,
                 'id': None,
-                'token': None,
                 'status': 'error',
-                'error': str(e)
+                'error': str(e),
+                'txt_record': None
             }
             
     def process_domains(self, domains: List[str]) -> List[Dict]:
@@ -135,15 +168,26 @@ class DigiCertDomainAdder:
         return results
         
     def save_results(self, results: List[Dict], output_file: str = None) -> str:
-        """Save results to a JSON file"""
-        if not output_file:
+        """Save results to a JSON file in the digicert_output directory"""
+        # Create output directory if it doesn't exist
+        output_dir = "digicert_output"
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Save each domain's result to its own file
+        saved_files = []
+        for result in results:
+            domain = result.get('domain', 'unknown')
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_file = f"digicert_domain_add_{timestamp}.json"
+            filename = f"{domain}_{timestamp}.json"
+            filepath = os.path.join(output_dir, filename)
             
-        with open(output_file, 'w') as f:
-            json.dump(results, f, indent=2)
+            with open(filepath, 'w') as f:
+                json.dump([result], f, indent=2)
             
-        return output_file
+            saved_files.append(filepath)
+            print(f"Results for {domain} saved to: {filepath}")
+            
+        return saved_files
 
 def main():
     parser = argparse.ArgumentParser(description='Add domains to DigiCert with TXT token validation')
@@ -170,7 +214,7 @@ def main():
         results = adder.process_domains(domains)
         
         # Save results
-        output_file = adder.save_results(results, args.output)
+        output_files = adder.save_results(results, args.output)
         
         # Print summary
         success_count = sum(1 for r in results if r['status'] == 'success')
@@ -180,7 +224,7 @@ def main():
         print(f"Total domains processed: {len(results)}")
         print(f"Successfully added: {success_count}")
         print(f"Failed: {error_count}")
-        print(f"\nResults saved to: {output_file}")
+        print(f"\nResults saved to: {output_files}")
         
         if error_count > 0:
             print("\nFailed domains:")

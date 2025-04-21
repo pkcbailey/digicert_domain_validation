@@ -36,3 +36,6 @@ ENV/
 # Project specific
 stocks.csv
 *.xlsx 
+
+# digicert output
+digicert_output/

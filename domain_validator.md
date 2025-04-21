@@ -1,107 +1,149 @@
 # Domain Validator
 
-A Python script that validates domain names and their DNS records, checking for common configuration issues and potential problems.
+A Python script that validates domain names and their DNS records, checking for common configuration issues and potential problems. It associates domains with a specific organization ID for proper categorization using DigiCert's CertCentral API.
 
 ## Features
 
-- Validates domain name format and structure
-- Checks DNS record types (A, AAAA, CNAME, MX, TXT, etc.)
+- Validates domain name format
+- Checks various DNS record types (A, AAAA, MX, TXT, CNAME, NS)
 - Verifies DNS resolution
 - Identifies common configuration issues
-- Generates detailed validation reports
-- Supports bulk domain validation from input files
+- Generates comprehensive validation reports
+- Supports bulk domain validation
+- Secure storage of API keys and organization IDs using system keychain
+- Automatic domain addition to DigiCert with TXT record validation
 
 ## Prerequisites
 
 - Python 3.6 or higher
 - Internet connection for DNS queries
-- Required Python packages (see Dependencies section)
+- DigiCert API access
+- Organization ID in DigiCert
 
 ## Installation
 
-1. Clone this repository
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd domain-validator
+```
+
 2. Install required dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
+## Authentication Setup
+
+### First-time Setup
+
+1. Run the script with any domain to trigger the authentication setup:
+```bash
+python domain_validator.py --domain example.com
+```
+
+2. When prompted:
+   - Enter your DigiCert API key
+   - Enter your DigiCert Organization ID
+
+The credentials will be securely stored in your system's keychain and won't need to be entered again.
+
+### Using Stored Credentials
+
+Once credentials are stored in the keychain, you can run the script without providing them:
+
+```bash
+# Validate a single domain using stored credentials
+python domain_validator.py --domain example.com
+
+# Validate multiple domains from a file using stored credentials
+python domain_validator.py --file domains.txt
+```
+
+### Overriding Stored Credentials
+
+If you need to use different credentials, you can override the stored values:
+
+```bash
+# Override organization ID
+python domain_validator.py --domain example.com --org-id 1234567
+
+# Note: There is no command-line option for the API key for security reasons
+```
+
 ## Usage
 
 ### Basic Usage
-```bash
-python domain_validator.py example.com
-```
 
-### Bulk Validation
 ```bash
+# Validate a single domain
+python domain_validator.py --domain example.com
+
+# Validate multiple domains from a file
 python domain_validator.py --file domains.txt
 ```
 
 ### Command Line Options
-- `--domain`: Single domain to validate
-- `--file`: Path to file containing list of domains (one per line)
-- `--output`: Path to save validation report (default: validation_report.xlsx)
-- `--verbose`: Enable detailed output
-- `--timeout`: DNS query timeout in seconds (default: 5)
 
-## Validation Checks
+- `--domain`: Single domain to validate
+- `--file`: File containing list of domains (one per line)
+- `--output`: Output Excel file path (default: validation_report.xlsx)
+- `--org-id`: Organization ID for domain categorization (optional if stored in keychain)
+- `--verbose`: Enable verbose output
+
+### Validation Checks
 
 The script performs the following checks:
-1. Domain Format Validation
-   - Valid characters
-   - Proper length
-   - Correct structure
-2. DNS Resolution
-   - A records
-   - AAAA records
-   - MX records
-   - TXT records
-   - CNAME records
-3. Common Issues
-   - Missing records
-   - Misconfigured records
-   - Potential security issues
 
-## Report Format
+1. Domain Format Validation:
+   - Validates domain name syntax
+   - Checks for proper TLD format
 
-The generated report includes:
+2. DNS Resolution:
+   - Verifies domain exists in DNS
+   - Checks for A/AAAA records
+   - Validates MX records
+   - Verifies NS records
+   - Checks for TXT records
+   - Validates CNAME records
+
+3. DigiCert Integration:
+   - Checks if domain exists in DigiCert
+   - Verifies organization association
+   - Adds domain to organization if not found
+   - Provides TXT record for validation
+
+### Report Format
+
+The generated Excel report includes:
+
+- Organization ID
 - Domain name
-- Validation status
-- DNS record details
-- Identified issues
-- Recommendations
+- Format validation status
+- DigiCert status
+- Organization match status
+- Validation method
+- Validation TXT record (if applicable)
+- Record counts for each type
+- Any identified issues
 
 ## Dependencies
 
-- dnspython>=2.0.0
-- pandas>=2.0.0
-- openpyxl>=3.1.2
-- tqdm>=4.65.0 (for progress bars)
+- dnspython
+- pandas
+- openpyxl
+- requests
+- keyring
+- tqdm
 
 ## Error Handling
 
-The script includes error handling for:
+The script includes comprehensive error handling for:
 - Invalid domain formats
 - DNS resolution failures
-- Network connectivity issues
-- File I/O errors
-
-## Examples
-
-### Validate Single Domain
-```bash
-python domain_validator.py example.com
-```
-
-### Validate Multiple Domains
-```bash
-python domain_validator.py --file domains.txt --output results.xlsx
-```
-
-### Verbose Output
-```bash
-python domain_validator.py example.com --verbose
-```
+- API communication errors
+- File I/O operations
+- Keychain access issues
 
 ## Contributing
 
@@ -109,4 +151,4 @@ Feel free to submit issues and enhancement requests!
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+This project is licensed under the MIT License. 
