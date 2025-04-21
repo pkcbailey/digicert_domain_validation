@@ -31,15 +31,32 @@ class DigiCertDomainAdder:
         
     def _get_api_key(self) -> str:
         """Get DigiCert API key from keyring"""
-        service_name = "digicert_api"
-        key = keyring.get_password(service_name, "api_key")
-        if not key:
-            raise ValueError("DigiCert API key not found in keychain. Please run domain_validator.py first.")
-        return key
+        service_name = "digicert"
+        try:
+            # List all credentials in the keyring for debugging
+            print("Checking keyring for DigiCert API key...")
+            key = keyring.get_password(service_name, "api_key")
+            
+            if not key:
+                print(f"Error: No API key found in keyring for service '{service_name}'")
+                print("Please ensure you have run domain_validator.py first to store the credentials.")
+                raise ValueError("DigiCert API key not found in keychain")
+                
+            # Verify the key format (should be a 32-character hex string)
+            if not isinstance(key, str) or len(key) != 32:
+                print(f"Warning: API key format appears incorrect. Expected 32 characters, got {len(key)}")
+                print("Please verify the key in your keyring is correct.")
+                
+            return key
+            
+        except Exception as e:
+            print(f"Error accessing keyring: {str(e)}")
+            print("Please ensure keyring is properly installed and configured.")
+            raise
         
     def _get_org_id(self) -> str:
         """Get organization ID from keyring"""
-        service_name = "digicert_api"
+        service_name = "digicert"
         org_id = keyring.get_password(service_name, "org_id")
         if not org_id:
             raise ValueError("Organization ID not found in keychain. Please run domain_validator.py first.")
