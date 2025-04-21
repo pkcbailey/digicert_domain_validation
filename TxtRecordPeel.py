@@ -23,7 +23,7 @@ import keyring
 
 def get_email_credentials() -> tuple:
     """Get email credentials from keyring"""
-    service = "digicert_email"
+    service = "email"
     email = keyring.get_password(service, "email")
     password = keyring.get_password(service, "password")
     relay = keyring.get_password(service, "relay")
@@ -31,7 +31,7 @@ def get_email_credentials() -> tuple:
     if not all([email, password, relay]):
         print("Error: Missing email credentials in keyring")
         print("Please store the following in keyring:")
-        print("1. Service: digicert_email")
+        print("1. Service: email")
         print("2. Username: email (your email address)")
         print("3. Username: password (your email password)")
         print("4. Username: relay (your email relay server)")
