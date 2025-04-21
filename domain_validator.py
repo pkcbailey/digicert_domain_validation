@@ -76,13 +76,43 @@ class DomainValidator:
                     'is_org_match': str(data.get('organization', {}).get('id')) == str(self.org_id)
                 }
             elif response.status_code == 404:
-                return {
-                    'exists': False,
-                    'status': 'not_found',
-                    'validation_method': 'none',
-                    'org_id': None,
-                    'is_org_match': False
-                }
+                # Domain not found, let's add it to the organization with TXT validation
+                add_response = requests.post(
+                    f"{self.digicert_base_url}/domain",
+                    headers=headers,
+                    json={
+                        "name": domain,
+                        "organization": {
+                            "id": int(self.org_id)
+                        },
+                        "validation": {
+                            "method": "dns_txt"
+                        }
+                    }
+                )
+                
+                if add_response.status_code == 201:
+                    add_data = add_response.json()
+                    validation_record = add_data.get('validation', {}).get('txt_record')
+                    return {
+                        'exists': True,
+                        'status': 'pending',
+                        'validation_method': 'dns_txt',
+                        'org_id': self.org_id,
+                        'is_org_match': True,
+                        'message': 'Domain added to organization',
+                        'validation_record': validation_record,
+                        'validation_instructions': f"Add the following TXT record to your domain's DNS:\nHost: _digicert-validation\nValue: {validation_record}"
+                    }
+                else:
+                    return {
+                        'exists': False,
+                        'status': 'error',
+                        'validation_method': 'none',
+                        'org_id': None,
+                        'is_org_match': False,
+                        'error': f"Failed to add domain: {add_response.status_code}"
+                    }
             else:
                 return {
                     'exists': False,
@@ -172,6 +202,7 @@ class DomainValidator:
                 'DigiCert Status': result['digicert_status']['status'],
                 'DigiCert Org Match': 'Yes' if result['digicert_status']['is_org_match'] else 'No',
                 'Validation Method': result['digicert_status']['validation_method'],
+                'Validation Record': result['digicert_status'].get('validation_record', 'N/A'),
                 'Issues': '; '.join(result['issues']) if result['issues'] else 'None'
             }
             
@@ -192,6 +223,7 @@ class DomainValidator:
             'DigiCert Status',
             'DigiCert Org Match',
             'Validation Method',
+            'Validation Record',
             'A Records',
             'AAAA Records',
             'MX Records',
@@ -216,6 +248,12 @@ class DomainValidator:
                 worksheet.column_dimensions[chr(65 + idx)].width = max_length + 2
                 
         print(f"\nReport saved to: {output_file}")
+        
+        # Print validation instructions for any domains that need validation
+        for result in self.results:
+            if result['digicert_status'].get('validation_instructions'):
+                print(f"\nValidation required for {result['domain']}:")
+                print(result['digicert_status']['validation_instructions'])
         
 def main():
     """Main entry point"""
