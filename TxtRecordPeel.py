@@ -22,27 +22,23 @@ from typing import Dict, List, Optional
 import keyring
 
 def get_email_credentials() -> tuple:
-    """Get email credentials from keyring"""
+    """Get email address from keyring"""
     service = "email"
     email = keyring.get_password(service, "email")
-    password = keyring.get_password(service, "password")
-    relay = keyring.get_password(service, "relay")
     
-    if not all([email, password, relay]):
-        print("Error: Missing email credentials in keyring")
+    if not email:
+        print("Error: Missing email address in keyring")
         print("Please store the following in keyring:")
         print("1. Service: email")
         print("2. Username: email (your email address)")
-        print("3. Username: password (your email password)")
-        print("4. Username: relay (your email relay server)")
-        raise ValueError("Missing email credentials")
+        raise ValueError("Missing email address")
     
-    return email, password, relay
+    return email
 
 def send_email(subject: str, body: str, to_email: str):
-    """Send email using stored credentials"""
+    """Send email using sendmail"""
     try:
-        from_email, password, relay = get_email_credentials()
+        from_email = keyring.get_password("email", "email")
         
         msg = MIMEMultipart()
         msg['From'] = from_email
@@ -51,9 +47,8 @@ def send_email(subject: str, body: str, to_email: str):
         
         msg.attach(MIMEText(body, 'plain'))
         
-        server = smtplib.SMTP(relay)
-        server.starttls()
-        server.login(from_email, password)
+        # Use sendmail without authentication
+        server = smtplib.SMTP('localhost')
         server.send_message(msg)
         server.quit()
         
@@ -195,7 +190,7 @@ def main():
             # Create and send email
             email_body = create_email_body(non_akamai_results)
             try:
-                from_email, _, _ = get_email_credentials()
+                from_email = get_email_credentials()
                 send_email(
                     "Non-Akamai Domains Report",
                     email_body,
