@@ -1,240 +1,253 @@
 #!/usr/bin/env python3
 """
-Domain Validator Script
+Domain Validator
 
-This script helps validate domains by:
-1. Adding domains to Digicert for validation
-2. Retrieving required TXT records
-3. Checking for Akamai hosting
-4. Managing DNS records accordingly
+This script validates domain names and their DNS records, checking for common
+configuration issues and potential problems. It associates domains with a specific
+organization ID for proper categorization using DigiCert's CertCentral API.
 """
 
-import os
-import sys
-import json
-import smtplib
+import argparse
 import dns.resolver
+import pandas as pd
+from typing import List, Dict, Optional
+import socket
+import re
+from tqdm import tqdm
+import sys
 import requests
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from typing import Optional, Tuple
-import tkinter as tk
-from tkinter import messagebox
+import json
+from datetime import datetime
 import keyring
-from pathlib import Path
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
-
-class Config:
-    """Handles configuration and API key management"""
-    
-    def __init__(self):
-        self.user_name = self._get_user_name()
-        self.digicert_api_key = self._get_api_key('digicert')
-        self.akamai_api_key = self._get_api_key('akamai')
-        self.akamai_api_secret = self._get_api_key('akamai_secret')
-        self.smtp_server = os.getenv('SMTP_SERVER', 'smtp.example.com')
-        self.smtp_port = int(os.getenv('SMTP_PORT', '587'))
-        self.admin_email = os.getenv('ADMIN_EMAIL', 'domainadmin@example.com')
-        
-    def _get_user_name(self) -> str:
-        """Get user name from keyring or prompt for it"""
-        name = keyring.get_password('domain_validator', 'user_name')
-        if not name:
-            name = input("Please enter your name for attribution: ").strip()
-            if name:
-                keyring.set_password('domain_validator', 'user_name', name)
-            else:
-                name = "Unknown User"
-        return name
-        
-    def _get_api_key(self, service: str) -> str:
-        """Retrieve API key from keyring or prompt for it"""
-        key = keyring.get_password('domain_validator', service)
-        if not key:
-            key = input(f"Please enter your {service} API key: ").strip()
-            if key:
-                keyring.set_password('domain_validator', service, key)
-            else:
-                raise ValueError(f"{service} API key is required")
-        return key
 
 class DomainValidator:
     """Main class for domain validation operations"""
     
-    def __init__(self, config: Config):
-        self.config = config
+    def __init__(self, org_id: str):
+        self.org_id = org_id
+        self.digicert_api_key = self._get_digicert_api_key()
         self.digicert_base_url = "https://www.digicert.com/services/v2"
-        self.akamai_base_url = "https://api.akamai.com/api/v1"
+        self.results = []
         
-    def add_domain_to_digicert(self, domain: str) -> Tuple[bool, str]:
-        """Add domain to Digicert for validation"""
-        headers = {
-            'X-DC-DEVKEY': self.config.digicert_api_key,
-            'Content-Type': 'application/json',
-            'X-DC-USER': self.config.user_name
-        }
+    def _get_digicert_api_key(self) -> str:
+        """Get DigiCert API key from keyring or prompt for it"""
+        service_name = "digicert_api"
+        key = keyring.get_password(service_name, "api_key")
         
-        try:
-            response = requests.post(
-                f"{self.digicert_base_url}/domain/validate",
-                headers=headers,
-                json={"domain": domain}
-            )
-            response.raise_for_status()
-            data = response.json()
-            return True, data.get('txt_record', '')
-        except requests.exceptions.RequestException as e:
-            return False, str(e)
-            
-    def check_akamai_hosting(self, domain: str) -> bool:
-        """Check if domain is hosted on Akamai"""
-        try:
-            ns_records = dns.resolver.resolve(domain, 'NS')
-            return any('akam' in str(record).lower() for record in ns_records)
-        except dns.resolver.NXDOMAIN:
-            return False
-        except Exception:
+        if not key:
+            key = input("Please enter your DigiCert API key: ").strip()
+            if key:
+                keyring.set_password(service_name, "api_key", key)
+            else:
+                raise ValueError("DigiCert API key is required")
+                
+        return key
+        
+    def validate_domain_format(self, domain: str) -> bool:
+        """Validate domain name format"""
+        if not domain:
             return False
             
-    def add_txt_record_akamai(self, domain: str, txt_record: str) -> bool:
-        """Add TXT record using Akamai API"""
+        # Domain name regex pattern
+        pattern = r'^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$'
+        return bool(re.match(pattern, domain))
+        
+    def check_digicert_domain(self, domain: str) -> Dict:
+        """Check domain status in DigiCert"""
         headers = {
-            'Authorization': f'Bearer {self.config.akamai_api_key}',
+            'X-DC-DEVKEY': self.digicert_api_key,
             'Content-Type': 'application/json'
         }
         
         try:
-            response = requests.post(
-                f"{self.akamai_base_url}/dns/records",
-                headers=headers,
-                json={
-                    "domain": domain,
-                    "type": "TXT",
-                    "value": txt_record
-                }
+            # Check if domain exists in DigiCert
+            response = requests.get(
+                f"{self.digicert_base_url}/domain/{domain}",
+                headers=headers
             )
-            response.raise_for_status()
-            return True
-        except requests.exceptions.RequestException:
-            return False
             
-    def send_admin_email(self, domain: str, txt_record: str) -> bool:
-        """Send email to admin with domain and TXT record"""
-        msg = MIMEMultipart()
-        msg['From'] = self.config.admin_email
-        msg['To'] = self.config.admin_email
-        msg['Subject'] = f"Domain Validation Required: {domain}"
-        
-        body = f"""
-        Domain: {domain}
-        TXT Record: {txt_record}
-        
-        Please add this TXT record to your DNS configuration.
-        """
-        
-        msg.attach(MIMEText(body, 'plain'))
-        
-        try:
-            with smtplib.SMTP(self.config.smtp_server, self.config.smtp_port) as server:
-                server.send_message(msg)
-            return True
-        except Exception:
-            return False
-
-class DomainValidatorGUI:
-    """Simple GUI for domain validation"""
-    
-    def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("Domain Validator")
-        self.config = Config()
-        self.validator = DomainValidator(self.config)
-        
-        self.setup_gui()
-        
-    def setup_gui(self):
-        """Setup the GUI components"""
-        # Domain input
-        tk.Label(self.root, text="Enter Domain:").pack(pady=5)
-        self.domain_entry = tk.Entry(self.root, width=40)
-        self.domain_entry.pack(pady=5)
-        
-        # Validate button
-        tk.Button(
-            self.root,
-            text="Validate Domain",
-            command=self.validate_domain
-        ).pack(pady=10)
-        
-        # Status label
-        self.status_label = tk.Label(self.root, text="")
-        self.status_label.pack(pady=5)
-        
-    def validate_domain(self):
-        """Handle domain validation process"""
-        domain = self.domain_entry.get().strip()
-        if not domain:
-            messagebox.showerror("Error", "Please enter a domain name")
-            return
-            
-        self.status_label.config(text="Processing...")
-        self.root.update()
-        
-        success, txt_record = self.validator.add_domain_to_digicert(domain)
-        if not success:
-            messagebox.showerror("Error", f"Failed to add domain: {txt_record}")
-            self.status_label.config(text="")
-            return
-            
-        is_akamai = self.validator.check_akamai_hosting(domain)
-        if is_akamai:
-            success = self.validator.add_txt_record_akamai(domain, txt_record)
-            if success:
-                messagebox.showinfo("Success", "TXT record added to Akamai")
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    'exists': True,
+                    'status': data.get('status', 'unknown'),
+                    'validation_method': data.get('validation_method', 'unknown'),
+                    'org_id': data.get('organization', {}).get('id'),
+                    'is_org_match': str(data.get('organization', {}).get('id')) == str(self.org_id)
+                }
+            elif response.status_code == 404:
+                return {
+                    'exists': False,
+                    'status': 'not_found',
+                    'validation_method': 'none',
+                    'org_id': None,
+                    'is_org_match': False
+                }
             else:
-                messagebox.showerror("Error", "Failed to add TXT record to Akamai")
-        else:
-            success = self.validator.send_admin_email(domain, txt_record)
-            if success:
-                messagebox.showinfo("Success", "Email sent to admin with TXT record")
-            else:
-                messagebox.showerror("Error", "Failed to send email")
+                return {
+                    'exists': False,
+                    'status': 'error',
+                    'validation_method': 'none',
+                    'org_id': None,
+                    'is_org_match': False,
+                    'error': f"API error: {response.status_code}"
+                }
                 
-        self.status_label.config(text="")
-
+        except Exception as e:
+            return {
+                'exists': False,
+                'status': 'error',
+                'validation_method': 'none',
+                'org_id': None,
+                'is_org_match': False,
+                'error': str(e)
+            }
+            
+    def check_dns_records(self, domain: str) -> Dict:
+        """Check various DNS records for the domain"""
+        record_types = ['A', 'AAAA', 'MX', 'TXT', 'CNAME', 'NS']
+        results = {
+            'domain': domain,
+            'org_id': self.org_id,
+            'format_valid': self.validate_domain_format(domain),
+            'records': {},
+            'issues': []
+        }
+        
+        if not results['format_valid']:
+            results['issues'].append('Invalid domain format')
+            return results
+            
+        # Check DigiCert domain status
+        digicert_status = self.check_digicert_domain(domain)
+        results['digicert_status'] = digicert_status
+        
+        if not digicert_status['exists']:
+            results['issues'].append('Domain not found in DigiCert')
+        elif not digicert_status['is_org_match']:
+            results['issues'].append(f"Domain belongs to different organization (ID: {digicert_status['org_id']})")
+            
+        for record_type in record_types:
+            try:
+                answers = dns.resolver.resolve(domain, record_type)
+                results['records'][record_type] = [str(rdata) for rdata in answers]
+            except dns.resolver.NoAnswer:
+                results['records'][record_type] = []
+            except dns.resolver.NXDOMAIN:
+                results['issues'].append(f'Domain does not exist (NXDOMAIN)')
+                break
+            except Exception as e:
+                results['issues'].append(f'Error checking {record_type} records: {str(e)}')
+                
+        # Additional checks
+        if not results['issues']:
+            if not results['records'].get('A') and not results['records'].get('AAAA'):
+                results['issues'].append('No A or AAAA records found')
+            if not results['records'].get('MX'):
+                results['issues'].append('No MX records found')
+            if not results['records'].get('NS'):
+                results['issues'].append('No NS records found')
+                
+        return results
+        
+    def validate_domains(self, domains: List[str]) -> None:
+        """Validate a list of domains"""
+        for domain in tqdm(domains, desc="Validating domains"):
+            result = self.check_dns_records(domain.strip())
+            self.results.append(result)
+            
+    def generate_report(self, output_file: str) -> None:
+        """Generate Excel report from validation results"""
+        if not self.results:
+            print("No validation results to report")
+            return
+            
+        # Prepare data for DataFrame
+        report_data = []
+        for result in self.results:
+            row = {
+                'Organization ID': result['org_id'],
+                'Domain': result['domain'],
+                'Format Valid': 'Yes' if result['format_valid'] else 'No',
+                'DigiCert Status': result['digicert_status']['status'],
+                'DigiCert Org Match': 'Yes' if result['digicert_status']['is_org_match'] else 'No',
+                'Validation Method': result['digicert_status']['validation_method'],
+                'Issues': '; '.join(result['issues']) if result['issues'] else 'None'
+            }
+            
+            # Add record counts
+            for record_type in ['A', 'AAAA', 'MX', 'TXT', 'CNAME', 'NS']:
+                row[f'{record_type} Records'] = len(result['records'].get(record_type, []))
+                
+            report_data.append(row)
+            
+        # Create DataFrame
+        df = pd.DataFrame(report_data)
+        
+        # Reorder columns
+        columns = [
+            'Organization ID',
+            'Domain',
+            'Format Valid',
+            'DigiCert Status',
+            'DigiCert Org Match',
+            'Validation Method',
+            'A Records',
+            'AAAA Records',
+            'MX Records',
+            'TXT Records',
+            'CNAME Records',
+            'NS Records',
+            'Issues'
+        ]
+        df = df[columns]
+        
+        # Save to Excel
+        with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Validation Report')
+            
+            # Auto-adjust column widths
+            worksheet = writer.sheets['Validation Report']
+            for idx, col in enumerate(df.columns):
+                max_length = max(
+                    df[col].astype(str).apply(len).max(),
+                    len(str(col))
+                )
+                worksheet.column_dimensions[chr(65 + idx)].width = max_length + 2
+                
+        print(f"\nReport saved to: {output_file}")
+        
 def main():
     """Main entry point"""
-    if len(sys.argv) > 1:
-        # Command line mode
-        domain = sys.argv[1]
-        config = Config()
-        validator = DomainValidator(config)
+    parser = argparse.ArgumentParser(description='Domain Validator')
+    parser.add_argument('--domain', help='Single domain to validate')
+    parser.add_argument('--file', help='File containing list of domains (one per line)')
+    parser.add_argument('--output', default='validation_report.xlsx', 
+                       help='Output Excel file path')
+    parser.add_argument('--org-id', required=True, 
+                       help='Organization ID for domain categorization')
+    parser.add_argument('--verbose', action='store_true', 
+                       help='Enable verbose output')
+    
+    args = parser.parse_args()
+    
+    if not args.domain and not args.file:
+        parser.error("Either --domain or --file must be specified")
         
-        success, txt_record = validator.add_domain_to_digicert(domain)
-        if not success:
-            print(f"Error: {txt_record}")
+    validator = DomainValidator(args.org_id)
+    
+    if args.domain:
+        domains = [args.domain]
+    else:
+        try:
+            with open(args.file, 'r') as f:
+                domains = f.readlines()
+        except Exception as e:
+            print(f"Error reading domain file: {str(e)}")
             sys.exit(1)
             
-        is_akamai = validator.check_akamai_hosting(domain)
-        if is_akamai:
-            success = validator.add_txt_record_akamai(domain, txt_record)
-            if not success:
-                print("Failed to add TXT record to Akamai")
-                sys.exit(1)
-            print("TXT record added to Akamai")
-        else:
-            success = validator.send_admin_email(domain, txt_record)
-            if not success:
-                print("Failed to send email")
-                sys.exit(1)
-            print("Email sent to admin with TXT record")
-    else:
-        # GUI mode
-        app = DomainValidatorGUI()
-        app.root.mainloop()
-
+    validator.validate_domains(domains)
+    validator.generate_report(args.output)
+    
 if __name__ == "__main__":
     main() 
