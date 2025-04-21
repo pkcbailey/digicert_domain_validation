@@ -32,14 +32,19 @@ class DigiCertDomainAdder:
     def _get_api_key(self) -> str:
         """Get DigiCert API key from keyring"""
         service_name = "digicert"
+        username = "digicert_api"
         try:
-            # List all credentials in the keyring for debugging
             print("Checking keyring for DigiCert API key...")
-            key = keyring.get_password(service_name, "api_key")
+            key = keyring.get_password(service_name, username)
             
             if not key:
-                print(f"Error: No API key found in keyring for service '{service_name}'")
-                print("Please ensure you have run domain_validator.py first to store the credentials.")
+                print(f"Error: No API key found in keyring for service '{service_name}' and username '{username}'")
+                print("Please store your DigiCert API key in the keyring:")
+                print("1. Open Keychain Access")
+                print("2. Create a new password item")
+                print("3. Set Keychain Item Name to 'digicert'")
+                print("4. Set Account Name to 'digicert_api'")
+                print("5. Enter your API key as the password")
                 raise ValueError("DigiCert API key not found in keychain")
                 
             # Verify the key format (should be a 32-character hex string)
@@ -57,9 +62,17 @@ class DigiCertDomainAdder:
     def _get_org_id(self) -> str:
         """Get organization ID from keyring"""
         service_name = "digicert"
-        org_id = keyring.get_password(service_name, "org_id")
+        username = "OrgID"
+        org_id = keyring.get_password(service_name, username)
         if not org_id:
-            raise ValueError("Organization ID not found in keychain. Please run domain_validator.py first.")
+            print(f"Error: No Organization ID found in keyring for service '{service_name}' and username '{username}'")
+            print("Please store your Organization ID in the keyring:")
+            print("1. Open Keychain Access")
+            print("2. Create a new password item")
+            print("3. Set Keychain Item Name to 'digicert'")
+            print("4. Set Account Name to 'OrgID'")
+            print("5. Enter your Organization ID as the password")
+            raise ValueError("Organization ID not found in keychain")
         return org_id
         
     def add_domain(self, domain: str) -> Dict:
