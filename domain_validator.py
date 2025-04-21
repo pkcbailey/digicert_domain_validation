@@ -31,6 +31,7 @@ class Config:
     """Handles configuration and API key management"""
     
     def __init__(self):
+        self.user_name = self._get_user_name()
         self.digicert_api_key = self._get_api_key('digicert')
         self.akamai_api_key = self._get_api_key('akamai')
         self.akamai_api_secret = self._get_api_key('akamai_secret')
@@ -38,13 +39,26 @@ class Config:
         self.smtp_port = int(os.getenv('SMTP_PORT', '587'))
         self.admin_email = os.getenv('ADMIN_EMAIL', 'domainadmin@example.com')
         
+    def _get_user_name(self) -> str:
+        """Get user name from keyring or prompt for it"""
+        name = keyring.get_password('domain_validator', 'user_name')
+        if not name:
+            name = input("Please enter your name for attribution: ").strip()
+            if name:
+                keyring.set_password('domain_validator', 'user_name', name)
+            else:
+                name = "Unknown User"
+        return name
+        
     def _get_api_key(self, service: str) -> str:
-        """Retrieve API key from keyring or environment variable"""
+        """Retrieve API key from keyring or prompt for it"""
         key = keyring.get_password('domain_validator', service)
         if not key:
-            key = os.getenv(f'{service.upper()}_API_KEY')
+            key = input(f"Please enter your {service} API key: ").strip()
             if key:
                 keyring.set_password('domain_validator', service, key)
+            else:
+                raise ValueError(f"{service} API key is required")
         return key
 
 class DomainValidator:
@@ -59,7 +73,8 @@ class DomainValidator:
         """Add domain to Digicert for validation"""
         headers = {
             'X-DC-DEVKEY': self.config.digicert_api_key,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'X-DC-USER': self.config.user_name
         }
         
         try:

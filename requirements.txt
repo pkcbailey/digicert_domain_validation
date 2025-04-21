@@ -1,4 +1,6 @@
 requests>=2.31.0
-dnspython>=2.4.2
+schedule>=1.2.0
 python-dotenv>=1.0.0
-keyring>=24.2.0 
+pytz>=2023.3
+keyring>=24.2.0
+pandas>=2.0.0 
