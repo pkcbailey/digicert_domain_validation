@@ -23,11 +23,25 @@ import keyring
 class DomainValidator:
     """Main class for domain validation operations"""
     
-    def __init__(self, org_id: str):
-        self.org_id = org_id
+    def __init__(self, org_id: str = None):
+        self.org_id = org_id or self._get_org_id()
         self.digicert_api_key = self._get_digicert_api_key()
         self.digicert_base_url = "https://www.digicert.com/services/v2"
         self.results = []
+        
+    def _get_org_id(self) -> str:
+        """Get organization ID from keyring or prompt for it"""
+        service_name = "digicert_api"
+        org_id = keyring.get_password(service_name, "org_id")
+        
+        if not org_id:
+            org_id = input("Please enter your DigiCert Organization ID: ").strip()
+            if org_id:
+                keyring.set_password(service_name, "org_id", org_id)
+            else:
+                raise ValueError("DigiCert Organization ID is required")
+                
+        return org_id
         
     def _get_digicert_api_key(self) -> str:
         """Get DigiCert API key from keyring or prompt for it"""
@@ -262,8 +276,7 @@ def main():
     parser.add_argument('--file', help='File containing list of domains (one per line)')
     parser.add_argument('--output', default='validation_report.xlsx', 
                        help='Output Excel file path')
-    parser.add_argument('--org-id', required=True, 
-                       help='Organization ID for domain categorization')
+    parser.add_argument('--org-id', help='Organization ID for domain categorization (optional if stored in keychain)')
     parser.add_argument('--verbose', action='store_true', 
                        help='Enable verbose output')
     
