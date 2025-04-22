@@ -1,9 +1,13 @@
+# CSV files
+*.csv
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+env/
 build/
 develop-eggs/
 dist/
@@ -15,15 +19,12 @@ lib64/
 parts/
 sdist/
 var/
-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 
 # Virtual Environment
-.env
-.venv
-env/
+.venv/
 venv/
 ENV/
 
@@ -32,6 +33,10 @@ ENV/
 .vscode/
 *.swp
 *.swo
+
+# OS
+.DS_Store
+Thumbs.db
 
 # Project specific
 stocks.csv
