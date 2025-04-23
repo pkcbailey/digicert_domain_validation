@@ -150,4 +150,4 @@ def main():
     checker.process_domains(args.input)
 
 if __name__ == "__main__":
-    main() 
+    main()
