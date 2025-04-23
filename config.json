@@ -1,0 +1,5 @@
+{
+    "api_key": "YOUR_ALPHA_VANTAGE_API_KEY",
+    "symbols": ["AAPL", "GOOGL", "MSFT", "AMZN", "META"],
+    "update_frequency": 5
+} 

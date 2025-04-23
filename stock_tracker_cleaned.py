@@ -8,8 +8,6 @@ This application tracks stock purchases and saves daily performance reports as s
 import os
 import json
 import csv
-import schedule
-import time
 from datetime import datetime, timezone
 from typing import List, Dict
 import yfinance as yf
@@ -26,8 +24,7 @@ class StockTracker:
     
     def __init__(self, config_file="config.json"):
         self.config = self.load_config(config_file)
-        self.html_file = "stocks.html"
-        self.initialize_html()
+                
         self.stocks_file = "stocks.json"
         self.csv_file = "stocks.csv"
         self.report_file = os.path.expanduser("~/Desktop/stock_report.xlsx")
@@ -37,8 +34,7 @@ class StockTracker:
         with open(config_file, 'r') as f:
             return json.load(f)
 
-    def initialize_html(self):
-        html_header = """<!DOCTYPE html>
+            html_header = """<!DOCTYPE html>
 <html>
 <head>
     <title>Stock Tracker</title>
@@ -182,6 +178,7 @@ class StockTracker:
         
         # Create DataFrame
         df = pd.DataFrame(performance)
+        df = df.sort_values(by='Ticker')
         
         # Calculate totals
         total_investment = df['Purchase Value'].sum()
@@ -216,15 +213,16 @@ class StockTracker:
         # Save to Excel
         with pd.ExcelWriter(self.report_file, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='Stock Performance')
+        df.style.set_properties(**{'font-size': '16pt'})
             
             # Auto-adjust column widths
-            worksheet = writer.sheets['Stock Performance']
-            for idx, col in enumerate(df.columns):
-                max_length = max(
-                    df[col].astype(str).apply(len).max(),
-                    len(str(col))
-                )
-                worksheet.column_dimensions[chr(65 + idx)].width = max_length + 2
+        worksheet = writer.sheets['Stock Performance']
+        for idx, col in enumerate(df.columns):
+            max_length = max(
+                df[col].astype(str).apply(len).max(),
+                len(str(col))
+            )
+            worksheet.column_dimensions[chr(65 + idx)].width = max_length + 2
             
         print(f"Report saved to {self.report_file}")
             
