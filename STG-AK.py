@@ -117,14 +117,18 @@ class AkamaiDNSClient:
 
     def get_rrsets(self, zone, record_name, record_type='TXT'):
         """Fetches all resource record sets of a specific type for a given name within a zone."""
-        path = f"zones/{zone.strip()}/rrsets" # Ensure zone is stripped
-        params = {'name': record_name.strip(), 'type': record_type.strip()} # Ensure record_name and type are stripped
-        logger.debug(f"Getting {record_type} RRSets for name '{record_name}' in zone '{zone}'")
+        # Updated path as per user request: zones/<domain>/names/<record_name>/types/<record_type>
+        clean_zone = zone.strip()
+        clean_record_name = record_name.strip()
+        clean_record_type = record_type.strip()
+        path = f"zones/{clean_zone}/names/{clean_record_name}/types/{clean_record_type}" 
+        
+        logger.debug(f"Getting {record_type} RRSets for name '{record_name}' in zone '{zone}' from path: {path}")
         try:
-            response = self._make_request('GET', path, params=params)
+            response = self._make_request('GET', path) # Parameters are now part of the URL path
             # The API returns a list of RRSets if successful, even if empty.
             # It might return a 404 if the name doesn't exist at all, or an empty list if no records of that type.
-            return response.get('rsets', [])
+            return response.get('rsets', []) # Assuming 'rsets' key is still used in response
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
                 logger.debug(f"No RRSet found for name '{record_name}' type '{record_type}' in zone '{zone}'.")
@@ -141,7 +145,8 @@ class AkamaiDNSClient:
         clean_record_name = record_name.strip()
         clean_record_type = record_type.strip()
 
-        path = f"zones/{clean_zone}/rrsets/{clean_record_name}/{clean_record_type}"
+        # Updated path as per user request: zones/<domain>/names/<record_name>/types/<record_type>
+        path = f"zones/{clean_zone}/names/{clean_record_name}/types/{clean_record_type}"
         payload = {
             "name": clean_record_name,
             "type": clean_record_type,
@@ -158,7 +163,8 @@ class AkamaiDNSClient:
         clean_record_name = record_name.strip()
         clean_record_type = record_type.strip()
 
-        path = f"zones/{clean_zone}/rrsets/{clean_record_name}/{clean_record_type}"
+        # Updated path as per user request: zones/<domain>/names/<record_name>/types/<record_type>
+        path = f"zones/{clean_zone}/names/{clean_record_name}/types/{clean_record_type}"
         payload = {
             "name": clean_record_name,
             "type": clean_record_type,
@@ -175,11 +181,14 @@ class AkamaiDNSClient:
         clean_record_name = record_name.strip()
         clean_record_type = record_type.strip()
 
-        path = f"zones/{clean_zone}/rrsets/{clean_record_name}/{clean_record_type}"
+        # Updated path as per user request: zones/<domain>/names/<record_name>/types/<record_type>
+        path = f"zones/{clean_zone}/names/{clean_record_name}/types/{clean_record_type}"
         
-        logger.info(f"Attempting to delete {record_type} record '{record_name}' in zone '{zone}'")
+        logger.info(f"Attempting to delete {record_type} record '{record_name}' in zone '{zone}' from path: {path}")
         try:
-            existing_rrsets = self.get_rrsets(zone, record_name, record_type) # Use original zone/record_name for this call
+            # For deletion, we still want to check if it exists before trying to delete
+            # We'll use the new path for get_rrsets too.
+            existing_rrsets = self.get_rrsets(zone, record_name, record_type) 
             if not existing_rrsets:
                 logger.warning(f"No existing {record_type} record '{record_name}' found to delete in zone '{zone}'. Skipping deletion.")
                 return {"status": "skipped", "message": "Record not found for deletion"}
