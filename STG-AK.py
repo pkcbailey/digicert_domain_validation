@@ -6,6 +6,7 @@ from akamai.edgegrid import EdgeGridAuth
 import requests
 import re
 from urllib.parse import urljoin
+import configparser # Import configparser
 
 # --- Configuration ---
 # Set up logging to file and console
@@ -34,13 +35,24 @@ class AkamaiDNSClient:
     def __init__(self, edgerc_file, edgerc_section):
         self.session = requests.Session()
         try:
-            self.session.auth = EdgeGridAuth.from_edgerc(edgerc_file, edgerc_section)
-            # Fetch the host from the edgerc section to construct the base URL
-            config_parser = EdgeGridAuth.get_edgerc_config(edgerc_file, edgerc_section)
-            self.akamai_host = config_parser.get('host')
+            # First, parse the .edgerc file to get the host
+            config = configparser.ConfigParser()
+            if not os.path.exists(edgerc_file):
+                raise FileNotFoundError(f".edgerc file not found at: {edgerc_file}")
+            config.read(edgerc_file)
+
+            if edgerc_section not in config:
+                raise ValueError(f"Section '{edgerc_section}' not found in .edgerc file.")
+
+            self.akamai_host = config.get(edgerc_section, 'host')
             if not self.akamai_host:
                 raise ValueError(f"Host not found in .edgerc section '{edgerc_section}'")
+
             self.base_url = AKAMAI_API_BASE_URL.format(self.akamai_host)
+            
+            # Now, initialize EdgeGridAuth for the session
+            self.session.auth = EdgeGridAuth.from_edgerc(edgerc_file, edgerc_section)
+            
             logger.info(f"AkamaiDNSClient initialized with base URL: {self.base_url}")
         except Exception as e:
             logger.error(f"Failed to initialize Akamai EdgeGrid authentication: {e}")
@@ -259,12 +271,9 @@ def process_dcv_records(csv_file_path):
                         # 2. Check if the TXT record already exists
                         existing_rrsets = akamai_client.get_rrsets(akamai_zone, full_record_name, record_type)
                         
-                        record_value_to_add = f'"{token}"' # TXT records are often quoted in DNS for spaces/special chars
-                                                          # Akamai API expects clean strings, but often stores quoted.
-                                                          # Sending without quotes first, let API handle quoting if needed.
-                                                          # Or, if the token itself contains spaces, explicitly quote.
-                                                          # For DCV tokens, they usually don't have spaces.
-                                                          # Let's assume the API handles necessary quoting.
+                        record_value_to_add = token # Akamai API expects clean strings, it handles quoting if needed.
+                                                    # For DCV tokens, they usually don't have spaces or special characters
+                                                    # that require explicit quoting in the payload.
 
                         if existing_rrsets:
                             # 3. If exists, update the record
@@ -272,7 +281,7 @@ def process_dcv_records(csv_file_path):
                             # Akamai DNS API typically requires you to replace the entire RRSet values
                             # For DCV, we just need one value. So replace the existing rdata list with the new one.
                             update_response = akamai_client.update_rrset(
-                                akamai_zone, full_record_name, record_type, record_ttl, token
+                                akamai_zone, full_record_name, record_type, record_ttl, record_value_to_add
                             )
                             logger.info(f"Update API Response: {update_response}")
                             print(f"Updated Akamai record for {full_record_name}: {update_response.get('message', 'Success')}")
@@ -280,7 +289,7 @@ def process_dcv_records(csv_file_path):
                             # 4. If not exists, add a new record
                             logger.info(f"No existing TXT record for {full_record_name} found in zone {akamai_zone}. Adding new record...")
                             add_response = akamai_client.add_rrset(
-                                akamai_zone, full_record_name, record_type, record_ttl, token
+                                akamai_zone, full_record_name, record_type, record_ttl, record_value_to_add
                             )
                             logger.info(f"Add API Response: {add_response}")
                             print(f"Added Akamai record for {full_record_name}: {add_response.get('message', 'Success')}")
