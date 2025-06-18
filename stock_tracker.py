@@ -11,12 +11,12 @@ import csv
 import schedule
 import time
 from datetime import datetime, timezone
-from typing import List, Dict
-import yfinance as yf
+from typing import List, Dict, Optional
 import pandas as pd
 from dotenv import load_dotenv
 import pytz
 import requests
+from functools import lru_cache
 
 # Load environment variables
 load_dotenv()
@@ -31,7 +31,9 @@ class StockTracker:
         self.stocks_file = "stocks.json"
         self.csv_file = "stocks.csv"
         self.report_file = os.path.expanduser("~/Desktop/stock_report.xlsx")
-        self.finnhub_api_key = "d09t8r9r01qus8rfa1ogd09t8r9r01qus8rfa1p0"
+        self.finnhub_api_key = os.getenv("FINNHUB_API_KEY", "d09t8r9r01qus8rfa1ogd09t8r9r01qus8rfa1p0")
+        self.last_api_call = {}  # Track last API call time for each ticker
+        self.min_api_interval = 1  # Minimum seconds between API calls
         self.load_stocks()
         
     def load_config(self, config_file):
@@ -142,25 +144,58 @@ class StockTracker:
         })
         self.save_stocks()
         
+    @lru_cache(maxsize=100)
+    def get_cached_price(self, ticker: str) -> Optional[Dict]:
+        """Get cached price data for a ticker"""
+        return None  # Cache is managed by lru_cache decorator
+
     def get_current_price(self, ticker: str) -> Dict:
-        """Fetch current stock price and change from Yahoo Finance"""
+        """Fetch current stock price and change from Finnhub with rate limiting"""
+        # Check cache first
+        cached_data = self.get_cached_price(ticker)
+        if cached_data:
+            return cached_data
+
+        # Check if we need to wait before making another API call
+        current_time = time.time()
+        if ticker in self.last_api_call:
+            time_since_last = current_time - self.last_api_call[ticker]
+            if time_since_last < self.min_api_interval:
+                time.sleep(self.min_api_interval - time_since_last)
+
         try:
-            stock = yf.Ticker(ticker)
-            info = stock.info
+            # Get quote data from Finnhub
+            quote_url = f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={self.finnhub_api_key}"
+            quote_response = requests.get(quote_url)
             
-            current_price = info.get('regularMarketPrice', 0.0)
-            change = info.get('regularMarketChange', 0.0)
-            change_percent = info.get('regularMarketChangePercent', 0.0)
+            if quote_response.status_code != 200:
+                print(f"Warning: Failed to get quote data for {ticker}")
+                return {'price': 0.0, 'change': 0.0, 'change_percent': 0.0}
             
-            if not current_price:
+            quote_data = quote_response.json()
+            current_price = quote_data.get('c', 0.0)  # Current price
+            previous_close = quote_data.get('pc', 0.0)  # Previous close
+            
+            if not current_price or not previous_close:
                 print(f"Warning: No price data available for {ticker}")
                 return {'price': 0.0, 'change': 0.0, 'change_percent': 0.0}
-                
-            return {
+            
+            change = current_price - previous_close
+            change_percent = (change / previous_close) * 100 if previous_close > 0 else 0
+            
+            result = {
                 'price': float(current_price),
                 'change': float(change),
                 'change_percent': float(change_percent)
             }
+            
+            # Update cache and last API call time
+            self.get_cached_price.cache_clear()  # Clear old cache entries
+            self.get_cached_price(ticker)  # Cache the new result
+            self.last_api_call[ticker] = time.time()
+            
+            return result
+            
         except Exception as e:
             print(f"Error fetching price for {ticker}: {str(e)}")
             return {'price': 0.0, 'change': 0.0, 'change_percent': 0.0}
@@ -199,8 +234,15 @@ class StockTracker:
     def calculate_performance(self) -> List[Dict]:
         """Calculate performance for all stocks"""
         performance = []
+        unique_tickers = set(stock['ticker'] for stock in self.stocks)
+        
+        # Pre-fetch all prices with rate limiting
+        price_cache = {}
+        for ticker in unique_tickers:
+            price_cache[ticker] = self.get_current_price(ticker)
+        
         for stock in self.stocks:
-            current_data = self.get_current_price(stock['ticker'])
+            current_data = price_cache[stock['ticker']]
             finnhub_data = self.get_finnhub_rating(stock['ticker'])
             purchase_value = stock['shares'] * stock['purchase_price']
             current_value = stock['shares'] * current_data['price']
