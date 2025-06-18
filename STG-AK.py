@@ -95,7 +95,7 @@ class AkamaiDNSClient:
         """
         parts = target_domain.split('.')
         for i in range(len(parts)):
-            potential_zone = ".".join(parts[i:])
+            potential_zone = ".".join(parts[i:]).strip() # Ensure potential_zone is stripped here
             logger.debug(f"Checking potential zone: {potential_zone}")
             # Akamai's API has a direct endpoint for a specific zone.
             # We can check if it exists and if it's managed.
@@ -117,8 +117,8 @@ class AkamaiDNSClient:
 
     def get_rrsets(self, zone, record_name, record_type='TXT'):
         """Fetches all resource record sets of a specific type for a given name within a zone."""
-        path = f"zones/{zone}/rrsets"
-        params = {'name': record_name, 'type': record_type}
+        path = f"zones/{zone.strip()}/rrsets" # Ensure zone is stripped
+        params = {'name': record_name.strip(), 'type': record_type.strip()} # Ensure record_name and type are stripped
         logger.debug(f"Getting {record_type} RRSets for name '{record_name}' in zone '{zone}'")
         try:
             response = self._make_request('GET', path, params=params)
@@ -136,10 +136,15 @@ class AkamaiDNSClient:
 
     def add_rrset(self, zone, record_name, record_type, ttl, rdata):
         """Adds a new resource record set."""
-        path = f"zones/{zone}/rrsets/{record_name}/{record_type}"
+        # Ensure all components of the URL path are stripped
+        clean_zone = zone.strip()
+        clean_record_name = record_name.strip()
+        clean_record_type = record_type.strip()
+
+        path = f"zones/{clean_zone}/rrsets/{clean_record_name}/{clean_record_type}"
         payload = {
-            "name": record_name,
-            "type": record_type,
+            "name": clean_record_name,
+            "type": clean_record_type,
             "ttl": ttl,
             "rdata": [rdata] # rdata is expected as a list of strings
         }
@@ -148,10 +153,15 @@ class AkamaiDNSClient:
 
     def update_rrset(self, zone, record_name, record_type, ttl, rdata):
         """Updates an existing resource record set."""
-        path = f"zones/{zone}/rrsets/{record_name}/{record_type}"
+        # Ensure all components of the URL path are stripped
+        clean_zone = zone.strip()
+        clean_record_name = record_name.strip()
+        clean_record_type = record_type.strip()
+
+        path = f"zones/{clean_zone}/rrsets/{clean_record_name}/{clean_record_type}"
         payload = {
-            "name": record_name,
-            "type": record_type,
+            "name": clean_record_name,
+            "type": clean_record_type,
             "ttl": ttl,
             "rdata": [rdata] # rdata is expected as a list of strings
         }
@@ -160,58 +170,20 @@ class AkamaiDNSClient:
 
     def delete_rrset(self, zone, record_name, record_type='TXT', ttl=60, rdata=None):
         """Deletes a specific resource record set."""
-        path = f"zones/{zone}/rrsets/{record_name}/{record_type}"
-        # Akamai DELETE usually requires the full RRSet structure including rdata
-        # Best practice is to GET the RRSet first, then DELETE it with its full current content
-        # Or, just send the required parameters. For a TXT record, often the exact value is needed.
-        # Let's fetch it first to ensure we delete the correct one.
+        # Ensure all components of the URL path are stripped
+        clean_zone = zone.strip()
+        clean_record_name = record_name.strip()
+        clean_record_type = record_type.strip()
+
+        path = f"zones/{clean_zone}/rrsets/{clean_record_name}/{clean_record_type}"
         
         logger.info(f"Attempting to delete {record_type} record '{record_name}' in zone '{zone}'")
         try:
-            existing_rrsets = self.get_rrsets(zone, record_name, record_type)
+            existing_rrsets = self.get_rrsets(zone, record_name, record_type) # Use original zone/record_name for this call
             if not existing_rrsets:
                 logger.warning(f"No existing {record_type} record '{record_name}' found to delete in zone '{zone}'. Skipping deletion.")
                 return {"status": "skipped", "message": "Record not found for deletion"}
 
-            # Assuming we only care about deleting the specific value we added
-            # If rdata is provided, find and delete only that specific value
-            # If rdata is None, delete the entire RRSet for that name/type
-            
-            # Akamai's DELETE RRSet endpoint often requires the exact JSON structure
-            # to be passed in the body. It's effectively a "replace with empty" or "remove specific".
-            # For simplicity and robust deletion of the DCV record, we will perform
-            # a GET first to get the current state and then issue the DELETE request.
-            # If there are multiple rdata values, we should only remove the specific one.
-            # A simple DELETE on a TXT RRSet name/type will delete ALL values under that RRSet.
-            # If the DCV TXT record is the ONLY record under that name, this is fine.
-            # If there could be other TXT records under the exact same name, this is tricky.
-            # For DCV, it's usually a unique name like _pki-validation.domain.com.
-            
-            # Simplified approach: Delete the entire RRSet for _pki-validation.
-            # This is common as _pki-validation records are typically temporary and specific.
-
-            # We need to construct the payload for DELETE.
-            # Akamai's API for DELETE /zones/{zone}/rrsets/{name}/{type} often expects
-            # a payload similar to PUT to specify what to delete.
-            # For simple deletion of a specific RRSet name/type, a bare DELETE might suffice,
-            # but documentation usually shows payload.
-            # Let's assume standard behavior: DELETE the entire RRSet for the given name and type.
-            # This is a dangerous operation if multiple records exist under the same RRSet name.
-            # For DCV, the name `_pki-validation.domain.com` is usually unique.
-
-            # To delete an RRSet, you send a DELETE to /zones/{zone}/rrsets/{name}/{type}
-            # with an empty list for rdata if you want to remove all records for that name/type,
-            # or with the specific records to remove.
-            # The most straightforward way to ensure full cleanup of *our* DCV record is to
-            # assume it's the only one for that _pki-validation.<domain> name, and delete the whole RRSet.
-            
-            # Let's fetch the existing RRSet first to ensure we are deleting the right one
-            # and to get its current TTL and rdata
-            
-            # Akamai DNS API v2 DELETE: "DELETE /zones/{zone}/rrsets/{name}/{type}"
-            # This deletes the entire RRSet for the name/type.
-            # No payload is typically needed for this specific endpoint for full RRSet deletion.
-            
             return self._make_request('DELETE', path)
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
