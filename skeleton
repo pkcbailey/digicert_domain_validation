@@ -1,0 +1,26 @@
+dcv-automation/
+  pyproject.toml
+  src/dcv_automation/
+    main.py
+    config.py
+    logging_setup.py
+
+    ingest/
+      csv_reader.py          # reads your header -> List[DcvWorkItem]
+      validators.py          # required fields, allowed providers, dates
+
+    dcv/
+      record_builder.py      # build CNAME name/target from (Value, token, name, dcv_method)
+      workflow.py            # orchestrates: create -> wait -> poll -> cleanup
+      state_store.py         # sqlite/json: item state + retries + last status
+
+    dns/
+      base.py
+      akamai.py
+      aws_route53.py
+      azure_dns.py
+
+    ca/
+      base.py
+      digicert.py
+      sectigo.py
