@@ -57,7 +57,7 @@ def get_digicert_domains(api_key):
 
 def get_sectigo_domains(login, password, customer_uri):
     print("Fetching Sectigo domains...")
-    url = "https://cert-manager.com/api/domain/v1"
+    base_url = "https://cert-manager.com/api/domain/v1"
     headers = {
         'login': login,
         'password': password,
@@ -65,24 +65,47 @@ def get_sectigo_domains(login, password, customer_uri):
         'Content-Type': 'application/json'
     }
     domains = []
-    try:
-        resp = requests.get(url, headers=headers)
-        if resp.status_code == 200:
-            items = resp.json()
-            if isinstance(items, list):
-                for item in items:
-                    d_id = item.get('id')
-                    d_name = item.get('name')
-                    if d_id and d_name:
-                        # Sectigo names might be case-sensitive or not, sticking to raw response
-                        domains.append({'id': d_id, 'domain': d_name, 'ca': 'Sectigo'})
-                print(f"  Found {len(domains)} domains.")
+    position = 0
+    size = 200
+    
+    while True:
+        try:
+            # Construct URL with pagination parameters
+            url = f"{base_url}?size={size}&position={position}"
+            resp = requests.get(url, headers=headers)
+            
+            if resp.status_code == 200:
+                items = resp.json()
+                if not items:
+                    break
+                    
+                if isinstance(items, list):
+                    batch_count = 0
+                    for item in items:
+                        d_id = item.get('id')
+                        d_name = item.get('name')
+                        if d_id and d_name:
+                            domains.append({'id': d_id, 'domain': d_name, 'ca': 'Sectigo'})
+                            batch_count += 1
+                    
+                    print(f"  Fetched {len(items)} items (Total so far: {len(domains)})")
+                    
+                    # If we got fewer items than requested, we are at the end
+                    if len(items) < size:
+                        break
+                        
+                    position += size
+                else:
+                    print(f"  Warning: Expected list, got {type(items)}")
+                    break
             else:
-                print(f"  Warning: Expected list, got {type(items)}")
-        else:
-            print(f"  Error: HTTP {resp.status_code} - {resp.text}")
-    except Exception as e:
-        print(f"  Exception: {e}")
+                print(f"  Error: HTTP {resp.status_code} - {resp.text}")
+                break
+        except Exception as e:
+            print(f"  Exception fetching batch starting at {position}: {e}")
+            break
+            
+    print(f"  Total Sectigo domains found: {len(domains)}")
     return domains
 
 def save_to_csv(all_domains):
