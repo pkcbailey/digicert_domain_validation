@@ -297,15 +297,18 @@ def main():
     with open(api_vault_path, 'r') as f:
         vault = json.load(f)
 
-    # DigiCert credentials (now supports customerID and old orgID fields)
+    # DigiCert credentials
     digicert = vault.get('digicert') or {}
     digicert_api_key = digicert.get('api')
-    digicert_org_id = (
-        digicert.get('customerID') or
-        digicert.get('organizationID') or
-        digicert.get('organizationId') or
-        digicert.get('organization_id')
-    )
+    
+    # Enforce customerID as per user request
+    digicert_org_id = digicert.get('customerID') or digicert.get('customer_id') or digicert.get('cid')
+    
+    if not digicert_org_id:
+        print("Error: No 'customerID' found in digicert section of .ApiVault")
+        sys.exit(1)
+
+    print(f"Using DigiCert Customer ID: {digicert_org_id}")
 
     # Sectigo credentials
     sectigo = vault.get('Sectigo') or {}
