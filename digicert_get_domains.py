@@ -31,7 +31,12 @@ def load_credentials():
     if not api_key:
         print("Error: No 'api' key found in digicert section")
         sys.exit(1)
-    return api_key
+        
+    customer_id = digicert.get('customerID') or digicert.get('customer_id') or digicert.get('cid')
+    if not customer_id:
+         print("Warning: No 'customerID' found in digicert section. Filtering will be skipped.")
+    
+    return api_key, customer_id
 
 def get_domain_details(domain_id, api_key):
     # Added include_dcv and include_validation as requested
@@ -80,7 +85,10 @@ def map_dcv_method(method):
 
 def main():
     ensure_datadir()
-    api_key = load_credentials()
+    api_key, customer_id = load_credentials()
+    
+    if customer_id:
+        print(f"Filtering for Customer ID: {customer_id}")
     
     domains_list = read_lookup_csv()
     print(f"Found {len(domains_list)} Digicert domains in lookup CSV.")
@@ -100,6 +108,15 @@ def main():
         details = get_domain_details(d_id, api_key)
         
         if details:
+            if customer_id:
+                org = details.get('organization', {})
+                org_id = str(org.get('id', ''))
+                target_id = str(customer_id)
+                
+                if org_id != target_id:
+                    print(f"  Skipping {d_name_csv}: Customer ID mismatch ({org_id} != {target_id})")
+                    continue
+
             # Expiration
             raw_expiry = details.get('dcv_expiration_datetime')
             expiration_date = ""
