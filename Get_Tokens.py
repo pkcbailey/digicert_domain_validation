@@ -178,28 +178,20 @@ def main():
     print(f"Processing {len(rows)} domains...")
     
     # Test case filter
-    TEST_DOMAINS = ['finastra.ai', 'misys.ai']
+    
     
     for row in rows:
         provider = row.get('provider', '')
         domain_name = row.get('name', '')
         
-        # Filter for test case
-        if domain_name not in TEST_DOMAINS:
-             updated_rows.append(row)
-             continue
 
-        # Filter for Sectigo only test
-        if provider.lower() != 'sectigo':
-             updated_rows.append(row)
-             continue
 
         # Digicert Logic
         if provider.lower() == 'digicert':
             dcv_method = row.get('dcv_method', 'OTHER')
             domain_id = row.get('id')
             
-            print(f"Processing Digicert Test Domain: {domain_name} (ID: {domain_id})")
+            print(f"Processing Digicert Domain: {domain_name} (ID: {domain_id})")
             
             is_ready_for_token = False
             
@@ -225,7 +217,7 @@ def main():
 
         # Sectigo Logic
         elif provider.lower() == 'sectigo':
-            print(f"Processing Sectigo Test Domain: {domain_name}")
+            print(f"Processing Sectigo Domain: {domain_name}")
             # For Sectigo, we just call the start/domain/cname endpoint
             # It returns the host/point values directly
             
